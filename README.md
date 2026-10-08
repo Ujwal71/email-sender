@@ -1,59 +1,64 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Email Sender (internal tool)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Upload a CSV → compose → preview → confirm → send → see results. Nothing else.
 
-## About Laravel
+## Files in this package (copy over a fresh Laravel project)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+```
+app/
+  Http/Controllers/CampaignController.php   upload/store, show, preview, send, history
+  Http/Controllers/DashboardController.php
+  Http/Middleware/ToolBasicAuth.php          HTTP Basic login from .env
+  Jobs/SendCampaignJob.php                   loops recipients, records sent/failed
+  Mail/CampaignMail.php                      Laravel Mailable (SMTP)
+  Models/EmailCampaign.php, EmailRecipient.php
+  Services/RecipientImporter.php             CSV parsing + validation + de-duplication
+config/emailsender.php
+database/migrations/…email_campaigns, …email_recipients
+resources/views/{layouts,campaigns,emails}/…
+routes/web.php
+.env.example.snippet   sample-recipients.csv
+```
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Install (Laravel 11 or 12, PHP 8.2+, MySQL, Composer)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+composer create-project laravel/laravel email-sender
+cd email-sender
 
-## Learning Laravel
+# copy this package's app/, config/, database/, resources/, routes/ into the project
+# (overwrite routes/web.php), and delete resources/views/welcome.blade.php if you like
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+php artisan key:generate    # only if APP_KEY in .env is empty
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+1. Create the database: `CREATE DATABASE email_sender CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+2. Copy the values from `.env.example.snippet` into `.env` and fill in MySQL, SMTP and tool login.
+3. Run:
 
-## Laravel Sponsors
+```bash
+php artisan migrate
+php artisan serve
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Open http://127.0.0.1:8000 and log in with `TOOL_USERNAME` / `TOOL_PASSWORD`.
 
-### Premium Partners
+**Test safely first:** point SMTP at Mailpit or Mailtrap and use `sample-recipients.csv`.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Queue (optional)
 
-## Contributing
+Default is `QUEUE_CONNECTION=sync`: sending happens inside the request, which is fine for
+tens or a few hundred recipients. For bigger lists:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```
+QUEUE_CONNECTION=database
+php artisan queue:work --timeout=3600     # keep running, e.g. under Supervisor
+```
+The campaign page auto-refreshes while status is "Sending". (The `jobs` table migration ships with Laravel.)
 
-## Code of Conduct
+## Notes
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+* PHP's `upload_max_filesize` / `post_max_size` must allow the 5 MB attachment limit.
+* Attachments are stored in `storage/app/private/attachments` (not web-accessible).
+* Many SMTP providers rate-limit; failures are recorded per recipient with the SMTP error.
+* Before deploying: set `APP_ENV=production`, `APP_DEBUG=false`, serve over HTTPS (Basic auth sends credentials on every request), then `php artisan config:cache`.
